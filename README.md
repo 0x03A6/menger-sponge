@@ -29,4 +29,4 @@
 
 ## ‌Compilation
 
-- An avilible compiling command: `g++ main.cpp -o main.exe -O2 -lgraphics64 -luuid -lmsimg32 -lgdi32 -limm32 -lole32 -loleaut32 -lwinmm -lgdiplus`
+- An avilable compiling command: `g++ main.cpp -o main.exe -O2 -lgraphics64 -luuid -lmsimg32 -lgdi32 -limm32 -lole32 -loleaut32 -lwinmm -lgdiplus`
