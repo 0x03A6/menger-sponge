@@ -100,8 +100,6 @@ V3d res_normal;
 Stack<Cube, FRACTAL_MAX_ITER> blocks;
 Stack<Cube, FRACTAL_MAX_ITER> temp_blocks;  //进行 calc 计算穿透一个方块进入下一个方块 之前 栈的状态。方便光追。
 
-/// 【【还有点问题，光线透过空方块多次好像没了？】】
-
 /// @brief 光线入射到面上之后，处理（栈中的）方块转换
 /// @tparam CvtDouble space converter of double varibles
 /// @tparam CvtInt space converter of int varibles
