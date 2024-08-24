@@ -1,6 +1,7 @@
 ## 介绍
 
 - 用 C++ 和 EGE 实现的渲染了门格海绵的简单的软渲染器。可以使用光线追踪（和无反射的光线追踪）进行渲染。
+- 光线追踪算法还比较简陋，但是渲染结果还能看。打算以后用 BRDF 什么的重新写一遍。（但是最近上高三作业太多了，没啥时间。）
 - 演示视频（无反射光线追踪版本）：https://www.bilibili.com/video/BV19qp9eoERq
 
 ## 功能
@@ -17,6 +18,7 @@
 ## Introduction
 
 - A simple soft renderer written with C++ and EGE. It can render a Menger Sponge with Ray Tracing(and Ray Tracing without reflecting).
+- The Ray Tracing algorithm is relatively poor, but the rendering results is still not too bad. I plan to rewrite it using BRDF or something in the future. (But recently there have been too many homework. I don't have much time.)
 - Demo video(non-reflective ray tracing version): https://www.bilibili.com/video/BV19qp9eoERq
 
 ## Functions
