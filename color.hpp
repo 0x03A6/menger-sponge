@@ -48,6 +48,11 @@ struct Color {
         g *= c.g;
         b *= c.b;
     }
+    void operator/=(const double x) {
+        r /= x;
+        g /= x;
+        b /= x;
+    }
 };
 
 #endif

@@ -1,0 +1,29 @@
+// Menger Sponge
+bool inSponge(Vector3D<int> pos) {
+    //return false;   //DEBUG
+    if (pos.x != 1)
+        return (pos.y != 1 || pos.z != 1);
+    //else
+        return (pos.y != 1 && pos.z != 1);
+}
+
+// 谢尔宾斯基四面体
+bool inSponge(Vector3D<int> pos) {
+    if (pos.x == 1)
+        return pos.y ^ pos.z;
+    return !(pos.y ^ pos.z);
+}
+
+// 谢尔宾斯基雪花
+bool inSponge(Vector3D<int> pos) {
+    if (pos.x == 1)
+        return pos.y == 1 && pos.z == 1;
+    return pos.y != 1 && pos.z != 1;
+}
+
+// 面心立方
+bool inSponge(Vector3D<int> pos) {
+    if (pos.x == 1)
+        return (pos.y == 1) ^ (pos.z == 1);
+    return !((pos.y == 1) ^ (pos.z == 1));
+}

@@ -15,17 +15,20 @@
 
 constexpr int W = 800;
 constexpr int H = 600;
+constexpr int SPONGE_L = 3; // 递归时每边细分为的小格数（门格海绵为 3）
 constexpr V3d INIT_CAMERA_FRONT (-1.01, -1.02, -1.01);
 constexpr V3d INIT_CAMERA_HEAD  (-1, 0, 1);
-constexpr V3d INIT_CAMERA_POS   (2.01, 2.02, 2.03);
+constexpr V3d INIT_CAMERA_POS   (SPONGE_L * 2.01, SPONGE_L * 2.02, SPONGE_L * 2.03);
 constexpr double CAMERA_AXIS = 3;
-constexpr double INIT_CAMERA_VELOCITY = 0.5;
-constexpr int FRACTAL_MAX_ITER = 15;
+constexpr double INIT_MOVE_VELOCITY = 0.9;
+constexpr double ROTATE_VELOCITY = 0.3;
+constexpr int RELATIVE_FRACTAL_ITER = 15;    // 分形从现在相机在的递归层数往里渲染几层
 constexpr int SCALE = 300;
 constexpr double REFLECT_PROBABILITY = 0.9;
-constexpr Color SKY_COLOR(1.0, 1.0, 1.0);
-constexpr double DIST_EPS = 1e-8;  // 小于这个数的算作距离的计算误差
+constexpr Color SKY_COLOR(0.0, 0.0, 0.0);
+constexpr double DIST_EPS = 1e-10;  // 小于这个数的算作距离的计算误差
 constexpr double SPONGE_ROUGHNESS = 1.0;    // 海绵的粗糙程度（和正规定义不太一样，详见 deflectRay）
+constexpr int N = 100005;   // 一个很大的数，用于最大帧数与最大海绵递归层数 待优化
 
 // 这些是另一个视角的相机设置
 // constexpr V3d INIT_CAMERA_FRONT (-1, 0, -0);
@@ -35,12 +38,7 @@ constexpr double SPONGE_ROUGHNESS = 1.0;    // 海绵的粗糙程度（和正规
 // random number generator
 std::mt19937 rng;
 
-// 三组棱分别与三个坐标轴平行的正方体
-struct Cube {
-    V3d vertex; // 三个坐标值都最小的顶点
-    double a; // 边长
-    Vector3D<int> pos;    //在“父节点”立方体中的位置
-};
+double move_velocity = INIT_MOVE_VELOCITY;
 
 bool sgn(double x) {
     if (x > 0)  return true;
@@ -50,55 +48,80 @@ bool sgn(double x) {
 //描述了门格海绵长啥样，pos 代表的单元是实心还是空心，pos 从 0 开始。
 bool inSponge(Vector3D<int> pos) {
     //return false;   //DEBUG
-    if (pos.x == 0 || pos.x == 2)
+    if (pos.x != 1)
         return (pos.y != 1 || pos.z != 1);
     //else
         return (pos.y != 1 && pos.z != 1);
 }
 
+/// 改了一下代码，把 a1 换成了 0，把 a2 换成了 3，所以里面一些东西可能看起来很屎，但是我相信会被优化掉
 /// @brief 判断光线会（先）撞到两个平行的面中的哪个面
 /// @param a1 第一个面的法向量方向上的坐标的相对值（对于平行于坐标轴的面，“相对值”直接用法向量对应坐标轴的坐标数值即可）
 /// @param a2 第二个面……的相对值（同上）
 /// @param origin 光线起点在法向量方向上的相对值
 /// @param direction 光线方向在法向量方向的相对值
-/// @return 如果是 `true`，则会（先）撞到 `a1` 对应的面，`false` 则 `a2`。如果都撞不上就随便返回一个
-bool judgeHit(double a1, double a2, double origin, double direction) {
-    const bool close_to_a1 = (std::abs(origin - a1) < DIST_EPS);
-    const bool close_to_a2 = (std::abs(origin - a2) < DIST_EPS);
-    if (close_to_a1 || close_to_a2)
-        return close_to_a2;    // 如果 origin 在其中一个面上，忽略 origin 在的面。
-    if ((origin > a1) == (origin > a2)) //如果 a1 与 a2 在 origin 同侧
-        return (direction > 0) ^ (a1 > a2); //直接找 direction 方向较近的一个
-    return (direction > 0) == (a1 > origin);    //在异侧 找 direction 方向面在 origin 前方的一个
+/// @return 如果是 `false`，则会（先）撞到 `a1` 对应的面，`true` 则 `a2`。如果都撞不上就随便返回一个
+bool judgeHit(double origin, double direction) {
+    const bool close_to_0 = (std::abs(origin - 0) < DIST_EPS);
+    const bool close_to_1 = (std::abs(origin - SPONGE_L) < DIST_EPS);
+    if (close_to_0 || close_to_1)
+        return close_to_0;    // 如果 origin 在其中一个面上，忽略 origin 在的面。
+    if ((origin > 0) == (origin > SPONGE_L)) //如果 a1 与 a2 在 origin 同侧
+        return (direction < 0); //直接找 direction 方向较近的一个
+    return (direction > 0);    //在异侧 找 direction 方向面在 origin 前方的一个
 }
 
-Stack<Cube, FRACTAL_MAX_ITER> init_blocks;
-void calcInitBlock(V3d pos) {
+V3d enterBlock(V3d v, Vector3D<int> pos) {
+    return  {
+        (v.x - pos.x) * SPONGE_L,
+        (v.y - pos.y) * SPONGE_L,
+        (v.z - pos.z) * SPONGE_L
+    };
+}
+
+V3d exitBlock(V3d v, Vector3D<int> pos) {
+    return {
+        v.x / SPONGE_L + pos.x,
+        v.y / SPONGE_L + pos.y,
+        v.z / SPONGE_L + pos.z
+    };
+}
+
+Stack<Vector3D<int>, N> init_blocks;
+
+V3d enterInitBlock(V3d v) {
+    for (Vector3D<int> *i = init_blocks.arr + 1; i <= init_blocks.cursor; i++)
+        v = enterBlock(v, *i);
+    return v;
+}
+
+void calcInitBlock(V3d cam_pos) {
+    move_velocity = INIT_MOVE_VELOCITY;
     init_blocks.clear();
-    init_blocks.arr[0].vertex = { 0, 0, 0 };
-    init_blocks.arr[0].a = 1.0; //整个活，如果你在栈空的时候依旧读取栈顶对应的 a，你会读出来 1，对应最大的那个块的边长
-    if (pos.x <= 0 || pos.x >= 1 || pos.y <= 0 || pos.y >= 1 || pos.z <= 0 || pos.z >= 1)
+    init_blocks.arr[0] = { 0, 0, 0 };
+    if (cam_pos.x <= 0 || cam_pos.x >= SPONGE_L || cam_pos.y <= 0 || cam_pos.y >= SPONGE_L || cam_pos.z <= 0 || cam_pos.z >= SPONGE_L) {
         return;
-    while (init_blocks.size() < FRACTAL_MAX_ITER) {
-        Cube cube;
-        V3d t(pos.x - init_blocks.top().vertex.x, pos.y - init_blocks.top().vertex.y, pos.z - init_blocks.top().vertex.z);
-        cube.a = init_blocks.top().a / 3.0;
-        cube.pos = { (int)(t.x / cube.a), (int)(t.y / cube.a), (int)(t.z / cube.a) };
-        cube.vertex = (V3d){
-            init_blocks.top().vertex.x + cube.pos.x * cube.a,
-            init_blocks.top().vertex.y + cube.pos.y * cube.a,
-            init_blocks.top().vertex.z + cube.pos.z * cube.a
-        };
-        init_blocks.push(cube);
-        if (!inSponge(cube.pos))
+    }
+    Vector3D<int> pos;
+    while (init_blocks.size() < N) {
+        pos = { cam_pos.x, cam_pos.y, cam_pos.z };
+        init_blocks.push(pos);
+        cam_pos = enterBlock(cam_pos, pos);
+        move_velocity /= SPONGE_L;
+        if (!inSponge(pos))
             return;
+    }
+    if (init_blocks.size() == N) {
+        std::cout << "init block overflowed.\n";
+        getchar();
+        exit(0);
     }
 }
 
 Ray res_ray;    // 待优化
 V3d res_normal;
-Stack<Cube, FRACTAL_MAX_ITER> blocks;
-Stack<Cube, FRACTAL_MAX_ITER> temp_blocks;  //进行 calc 计算穿透一个方块进入下一个方块 之前 栈的状态。方便光追。
+Stack<Vector3D<int>, N> blocks;
+Stack<Vector3D<int>, N> temp_blocks;  //进行 calc 计算穿透一个方块进入下一个方块 之前 栈的状态。方便光追。
 
 /// @brief 光线入射到面上之后，处理（栈中的）方块转换
 /// @tparam CvtDouble space converter of double varibles
@@ -106,66 +129,54 @@ Stack<Cube, FRACTAL_MAX_ITER> temp_blocks;  //进行 calc 计算穿透一个方�
 /// @param p 线面交点
 /// @note 这么长其实是因为相似代码复制了一遍
 template<typename CvtDouble, typename CvtInt>
-void calc(CvtDouble p) {
+CvtDouble calc(CvtDouble p, const bool up) {
     
     //每次在函数内判断 first_in 会损失一点性能，以后有时间管一下。
-    const bool down = (p.X() == ((CvtDouble *)&(blocks.top().vertex))->X());   //是否是碰到了下表面
 
-    if (down ^ blocks.empty()) {    //如果是第一次入射，那么碰到上表面是从上方射入新立方体；如果不是第一次入射，那么碰到旧立方体的下表面是从上方射入新立方体。
-        
+    if ((!up) ^ blocks.empty()) {    //如果是第一次入射，那么碰到上表面是从上方射入新立方体；如果不是第一次入射，那么碰到旧立方体的下表面是从上方射入新立方体。
         if (!blocks.empty()) {
-            while (!blocks.empty() && ((CvtInt *)&(blocks.top().pos))->X() == 0)   //出方块 【改】
+            while (!blocks.empty() && ((CvtInt *)&(blocks.top()))->X() == 0) {   //出方块 【改】
+                p = exitBlock(p, blocks.top());
                 blocks.pop();
+            }
             if (blocks.empty())
-                return;
-            ((CvtInt *)&(blocks.top().pos))->X()--; //【改】
-            ((CvtDouble *)&(blocks.top().vertex))->X() = ((CvtDouble *)&((blocks.cursor - 1)->vertex))->X() + blocks.top().a * ((CvtInt *)&(blocks.top().pos))->X();
-            if (!inSponge(blocks.top().pos))
-                return; //进入空方块：返回，进行下一次传播（propagate）。
+                return p;
+            ((CvtInt *)&(blocks.top()))->X()--; //【改】
+            p.X() = SPONGE_L;  //【改】
+            if (!inSponge(blocks.top()))
+                return p; //进入空方块：返回，进行下一次传播（propagate）。
         }
-        while (blocks.size() < FRACTAL_MAX_ITER) {  //进方块
-            const double y = p.Y() - ((CvtDouble *)&(blocks.top().vertex))->Y();
-            const double z = p.Z() - ((CvtDouble *)&(blocks.top().vertex))->Z();
-            Cube cube;
-            cube.a = blocks.top().a / 3.0;  //整了个活，如果你在栈空的时候依旧读取栈顶对应的 a，你会读出来 1，对应最大的那个块的边长
-            cube.pos = (CvtInt){ 2, (int)(y / cube.a), (int)(z / cube.a) }; //【改】
-            cube.vertex = (V3d){
-                blocks.top().vertex.x + cube.pos.x * cube.a,
-                blocks.top().vertex.y + cube.pos.y * cube.a,
-                blocks.top().vertex.z + cube.pos.z * cube.a
-            };
-            blocks.push(cube);
-            if (!inSponge(cube.pos))
+        while (blocks.size() < init_blocks.size() + RELATIVE_FRACTAL_ITER) {  //进方块
+            Vector3D<int> pos;
+            pos = (CvtInt){ SPONGE_L - 1, (int)p.Y(), (int)p.Z() }; //【改】
+            p = enterBlock(p, pos);
+            blocks.push(pos);
+            if (!inSponge(pos))
                 break;
         }
     } else {
         if (!blocks.empty()) {
-            while (!blocks.empty() && ((CvtInt *)&(blocks.top().pos))->X() == 2)   //出方块 【改】
+            while (!blocks.empty() && ((CvtInt *)&(blocks.top()))->X() == SPONGE_L - 1) {   //出方块 【改】
+                p = exitBlock(p, blocks.top());
                 blocks.pop();
+            }
             if (blocks.empty())
-                return;
-            ((CvtInt *)&(blocks.top().pos))->X()++; //【改】
-            ((CvtDouble *)&(blocks.top().vertex))->X() = ((CvtDouble *)&((blocks.cursor - 1)->vertex))->X() + blocks.top().a * ((CvtInt *)&(blocks.top().pos))->X();
-            if (!inSponge(blocks.top().pos))
-                return; //进入空方块：返回，进行下一次传播（propagate）。
+                return p;
+            ((CvtInt *)&(blocks.top()))->X()++; //【改】
+            p.X() = 0;  //【改】
+            if (!inSponge(blocks.top()))
+                return p; //进入空方块：返回，进行下一次传播（propagate）。
         }
-        while (blocks.size() < FRACTAL_MAX_ITER) {  //进方块
-            const double y = p.Y() - ((CvtDouble *)&(blocks.top().vertex))->Y();
-            const double z = p.Z() - ((CvtDouble *)&(blocks.top().vertex))->Z();
-            Cube cube;
-            cube.a = blocks.top().a / 3.0;  //整了个活，如果你在栈空的时候依旧读取栈顶对应的 a，你会读出来 1，对应最大的那个块的边长
-            cube.pos = (CvtInt){ 0, (int)(y / cube.a), (int)(z / cube.a) }; //【改】
-            cube.vertex = (V3d){
-                blocks.top().vertex.x + cube.pos.x * cube.a,
-                blocks.top().vertex.y + cube.pos.y * cube.a,
-                blocks.top().vertex.z + cube.pos.z * cube.a
-            };
-            blocks.push(cube);
-            if (!inSponge(cube.pos))
+        while (blocks.size() < init_blocks.size() + RELATIVE_FRACTAL_ITER) {  //进方块
+            Vector3D<int> pos;
+            pos = (CvtInt){ 0, (int)p.Y(), (int)p.Z() }; //【改】
+            p = enterBlock(p, pos);
+            blocks.push(pos);
+            if (!inSponge(pos))
                 break;
         }
     }
-    
+    return p; // 只是为了消除 WARNING
 }
 
 //单次光线计算
@@ -173,23 +184,17 @@ void calc(CvtDouble p) {
 //return: 若撞到面了就返回 true
 bool propagate(Ray ray) {
     while (true) {
-        Cube cube = blocks.top();
-        const bool x_hit = judgeHit(cube.vertex.x, cube.vertex.x + cube.a, ray.origin.x, ray.direction.x);
-        const bool y_hit = judgeHit(cube.vertex.y, cube.vertex.y + cube.a, ray.origin.y, ray.direction.y);
-        const bool z_hit = judgeHit(cube.vertex.z, cube.vertex.z + cube.a, ray.origin.z, ray.direction.z);
-        const double x_surface = x_hit ? cube.vertex.x : cube.vertex.x + cube.a;
-        const double y_surface = y_hit ? cube.vertex.y : cube.vertex.y + cube.a;
-        const double z_surface = z_hit ? cube.vertex.z : cube.vertex.z + cube.a;
-        std::pair<double, V3d> x_hit_info = ray.intersectSquare<dXYZ>((dXYZ){ x_surface, cube.vertex.y, cube.vertex.z }, cube.a);
-        std::pair<double, V3d> y_hit_info = ray.intersectSquare<dYXZ>((dYXZ){ y_surface, cube.vertex.x, cube.vertex.z }, cube.a);
-        std::pair<double, V3d> z_hit_info = ray.intersectSquare<dZXY>((dZXY){ z_surface, cube.vertex.x, cube.vertex.y }, cube.a);
+        Vector3D<int> pos = blocks.top();
+        const bool x_hit = judgeHit(ray.origin.x, ray.direction.x);
+        const bool y_hit = judgeHit(ray.origin.y, ray.direction.y);
+        const bool z_hit = judgeHit(ray.origin.z, ray.direction.z);
+        std::pair<double, V3d> x_hit_info = ray.intersectSquare<dXYZ>((dXYZ){ (double)x_hit * SPONGE_L, 0, 0 }, SPONGE_L);  // 待优化
+        std::pair<double, V3d> y_hit_info = ray.intersectSquare<dYXZ>((dYXZ){ (double)y_hit * SPONGE_L, 0, 0 }, SPONGE_L);  // 待优化
+        std::pair<double, V3d> z_hit_info = ray.intersectSquare<dZXY>((dZXY){ (double)z_hit * SPONGE_L, 0, 0 }, SPONGE_L);  // 待优化
         if (x_hit_info.first <= 0)  x_hit_info.first = INF; // 这三句在 judgeHit 里面好像判过了，可能可以删掉。
         if (y_hit_info.first <= 0)  y_hit_info.first = INF; // 这三句在 judgeHit 里面好像判过了，可能可以删掉。
         if (z_hit_info.first <= 0)  z_hit_info.first = INF; // 这三句在 judgeHit 里面好像判过了，可能可以删掉。
         const double temp_at = std::min({ x_hit_info.first, y_hit_info.first, z_hit_info.first });
-        //if (cube.pos.x == 1 && cube.pos.y == 1 && cube.pos.z == 1)
-        //    std::cout << "a";    //DEBUG
-        //printf("%d %d %d\n", cube.pos.x, cube.pos.y, cube.pos.z);
         if (temp_at == INF) {
             // if (!blocks.empty()) //DEBUG
             //     res_normal = { 1, 1, 1 };
@@ -199,12 +204,12 @@ bool propagate(Ray ray) {
             return false;
         }
 
-        temp_blocks = blocks;   // 非光追可删
+        // temp_blocks = blocks;   // 非光追可删
         
-        if      (x_hit_info.first == temp_at)   { ray.origin = x_hit_info.second; calc<dXYZ, XYZ<int> >(ray.origin); res_normal = { 1, 0, 0 }; }
-        else if (y_hit_info.first == temp_at)   { ray.origin = y_hit_info.second; calc<dYXZ, YXZ<int> >(ray.origin); res_normal = { 0, 1, 0 }; }
-        else if (z_hit_info.first == temp_at)   { ray.origin = z_hit_info.second; calc<dZXY, ZXY<int> >(ray.origin); res_normal = { 0, 0, 1 }; }
-        if (blocks.size() >= FRACTAL_MAX_ITER) {
+        if      (x_hit_info.first == temp_at)   { ray.origin = x_hit_info.second; ray.origin = calc<dXYZ, XYZ<int> >(ray.origin, x_hit); res_normal = { 1, 0, 0 }; }
+        else if (y_hit_info.first == temp_at)   { ray.origin = y_hit_info.second; ray.origin = calc<dYXZ, YXZ<int> >(ray.origin, y_hit); res_normal = { 0, 1, 0 }; }
+        else if (z_hit_info.first == temp_at)   { ray.origin = z_hit_info.second; ray.origin = calc<dZXY, ZXY<int> >(ray.origin, z_hit); res_normal = { 0, 0, 1 }; }
+        if (blocks.size() >= init_blocks.size() + RELATIVE_FRACTAL_ITER) {
             res_ray = ray;
             return true;
         }

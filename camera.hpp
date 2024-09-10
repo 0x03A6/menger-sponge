@@ -9,7 +9,7 @@ struct Camera {
 
     V3d pos;
     V3d front, right, head;
-    double v;   //移速
+    V3d relative_pos;
 
     Camera() {
         front = INIT_CAMERA_FRONT;
@@ -19,7 +19,6 @@ struct Camera {
         head.normalize();
         //pos.normalize();
         right = cross(front, head);
-        v = INIT_CAMERA_VELOCITY;
     }
     
     //坐标系转换相关函数：
@@ -41,7 +40,7 @@ struct Camera {
         return { (c - W / 2) / SCALE, (-l + H / 2) / SCALE };
     }
     V3d screenToSpace(V2d point) const {
-        return pos + front * CAMERA_AXIS + right * point.x + head * point.y;
+        return relative_pos + front * CAMERA_AXIS + right * point.x + head * point.y;
     }
     V3d pixelToSpace(Pixel px) const {
         return screenToSpace(pixelToScreen(px));
@@ -51,37 +50,55 @@ struct Camera {
     }
 
     void moveLeft(const double delta) {
-        pos -= right * delta * v;
+        pos -= right * delta * move_velocity;
     }
     void moveRight(const double delta) {
-        pos += right * delta * v;
+        pos += right * delta * move_velocity;
     }
     void moveUp(const double delta) {
-        pos += head * delta * v;
+        pos += head * delta * move_velocity;
     }
     void moveDown(const double delta) {
-        pos -= head * delta * v;
+        pos -= head * delta * move_velocity;
     }
     void moveForward(const double delta) {
-        pos += front * delta * v;
+        pos += front * delta * move_velocity;
     }
     void moveBackward(const double delta) {
-        pos -= front * delta * v;
+        pos -= front * delta * move_velocity;
     }
     //左右摇头，正数往左摇
     void rotateLR(const double delta) {
-        right += front * delta;
+        right += front * delta * ROTATE_VELOCITY;
         right.normalize();
         front = cross(head, right);
         //front.normalize();
     }
     //上下摇头，正数往上摇
     void rotateUD(const double delta) {
-        front += head * delta * INIT_CAMERA_VELOCITY;
+        front += head * delta * ROTATE_VELOCITY;
         front.normalize();
         head = cross(right, front);
         //head.normalize();
     }
 };
+
+struct CamInfo {
+        V3d pos;
+        V3d front, right, head;
+        CamInfo(Camera c) {
+            pos = c.pos;
+            front = c.front;
+            right = c.right;
+            head = c.head;
+        }
+        CamInfo(const V3d p, const V3d f, const V3d r, const V3d h) {
+            pos = p;
+            front = f;
+            right = r;
+            head = h;
+        }
+        CamInfo() {}
+    };
 
 #endif

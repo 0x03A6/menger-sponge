@@ -20,6 +20,10 @@ struct Vector3D {
         y = y / l;
         z = z / l;
     }
+    Vector3D normalized() const {
+        const T l = len();
+        return { x / l, y / l, z / l };
+    }
     //获得与此向量模长相等、方向相反的向量
     Vector3D reverse() {
         return { -x, -y, -z };
@@ -97,6 +101,10 @@ struct Vector2D {
     }
     //获得与此向量角度相同的单位向量
     Vector2D normalize() {
+        const T l = len();
+        return { x / l, y / l };
+    }
+    Vector2D normalized() const {
         const T l = len();
         return { x / l, y / l };
     }
